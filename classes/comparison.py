@@ -34,9 +34,10 @@ class Comparison:
                 round({tables[1]}.close,4),
                 round({tables[1]}.high,4),
                 round({tables[1]}.low, 4)
+                slaman
             FROM {tables[0]}
             INNER JOIN {tables[1]}
-                ON {tables[0]}.datetime = {tables[1]}.datetimE and {tables[0]}.symbol = {tables[1]}.symbol
+                ON {tables[0]}.datetime = {tables[1]}.datetime and {tables[0]}.symbol = {tables[1]}.symbol
             WHERE {tables[0]}.datetime = '{date}'
             ORDER BY {tables[0]}.datetime asc, {tables[0]}.symbol asc, {tables[1]}.symbol asc
         """
@@ -72,9 +73,6 @@ class Comparison:
             # saving the data to a data frame
             dfs = self.save_to_df(cursor.fetchall())
 
-            # saving the mismatched entries to a csv file
-            mismatched_entries = dfs["table1"].compare(dfs["table2"], keep_equal=False)
-            mismatched_entries.to_csv(f"comparison_log/{date}_comparison.csv", sep ="\t")
             
             print(f"File saved!\npath: ./comparison_log/{date}_comparison.csv\n")
             cursor.close()
