@@ -21,26 +21,22 @@ class Comparison:
             return False
     
     # generating query that gets data from DB
-    def generate_query(self, tables: list[str], date: str):
-        return f"""
-            SELECT
-                {tables[0]}.symbol,
-                {tables[0]}.datetime,
-                round({tables[0]}.open, 4),
-                round({tables[0]}.close, 4),
-                round({tables[0]}.high, 4),
-                round({tables[0]}.low,4),
-                round({tables[1]}.open,4),
-                round({tables[1]}.close,4),
-                round({tables[1]}.high,4),
-                round({tables[1]}.low, 4)
-                slaman
-            FROM {tables[0]}
-            INNER JOIN {tables[1]}
-                ON {tables[0]}.datetime = {tables[1]}.datetime and {tables[0]}.symbol = {tables[1]}.symbol
-            WHERE {tables[0]}.datetime = '{date}'
-            ORDER BY {tables[0]}.datetime asc, {tables[0]}.symbol asc, {tables[1]}.symbol asc
+    def generate_query(self, table: str, one_date: str = '', from_date: str = '', to_date:str ='', getall: bool = False):
+        query = f"""
+            SELECT *
+            FROM {table}
         """
+        if (one_date != ""):
+            query += f" WHERE datetime = '{one_date}'"
+        elif (from_date != "" and to_date != ""):
+            query += f" WHERE datetime >= '{from_date}' AND datetime <= '{to_date}'"
+        elif (not getall):
+            query += " LIMIT 200"
+        query += " ORDER BY datetime asc"
+
+        return query
+
+
 
     def connect_to_db(self) -> object:
         connection = psycopg2.connect(
@@ -52,54 +48,71 @@ class Comparison:
             )
         return connection
     
-    def compare_by_date(self, date: str, tables: list[str]) -> None:
+    def compare_by_interval(self, tables: list[str], from_date:str, to_date: str) -> None:
         try:
-            if not self.is_valid_date(date) or not self.db_cred:
+            connection = self.connect_to_db()
+            cursor = connection.cursor()
+
+            columns = ["symbol", "datetime", "open", "high", "low", "close", "volume"]
+
+            print("Fetching table 1 from DB...")
+
+            cursor.execute(self.generate_query(table=tables[0], from_date=from_date, to_date=to_date))
+            table1 = cursor.fetchall()
+            df1 = pd.DataFrame(table1, columns=columns)
+
+            print("\nTable 1 fetched successfully!\n\nFetching table 2 from DB...\n")
+
+            cursor.execute(self.generate_query(table=tables[1], from_date=from_date, to_date=to_date))
+            table2 = cursor.fetchall()
+            df2 = pd.DataFrame(table2, columns=columns)
+
+            print("Table 2 fetched successfully!")
+
+            merged = pd.merge(df1, df2, on=["symbol", "datetime"], how="outer")
+            merged.set_index(["symbol", "datetime"], inplace=True)
+
+            print(merged)
+        except:
+            print("Something wrong happened!")
+    
+    def compare_one_date(self, tables: list[str], one_date: str) -> None:
+        try:
+            if not self.is_valid_date(one_date) or not self.db_cred:
                 raise ValueError ("Date is not valid or DB info is empty")
 
             connection = self.connect_to_db()
             cursor = connection.cursor()
 
-            cursor.execute(f"select count(*) from {tables[0]} where datetime = '{date}'")
-
-            print(f"""
-                    **********************************************
-                    Fetching {cursor.fetchall()[0][0]} entries...
-                    **********************************************\n
-                """)
+            print("Fetching table 1 from DB...")
             
-            cursor.execute(self.generate_query(tables, date))
+            cursor.execute(self.generate_query(tables[0], one_date = one_date))
+            table1 = cursor.fetchall()
+
+            print("Table 1 fetched successfully!\nFetching table 2 from DB...")
+
+            cursor.execute(self.generate_query(tables[1], one_date = one_date))
+            table2 = cursor.fetchall()
+
+            print("Table 2 fetched successfully!")
+                  
+            columns = ["symbol", "datetime", "open", "high", "low", "close", "volume"]
+            df1 = pd.DataFrame(table1, columns=columns)
+            df2 = pd.DataFrame(table2, columns=columns)
 
             # saving the data to a data frame
-            dfs = self.save_to_df(cursor.fetchall())
+            merged = pd.merge(df1, df2, on=["symbol", "datetime"], how="outer")
+            merged.set_index([ "symbol", "datetime"], inplace=True)
 
             
-            print(f"File saved!\npath: ./comparison_log/{date}_comparison.csv\n")
+            # print(f"File saved!\npath: ./comparison_log/{date}_comparison.csv\n")
             cursor.close()
             connection.close()
 
-            print(mismatched_entries)
-            return 
+            print(merged)
           
-
         except (ValueError, KeyError):
             print(ValueError)
-
-    def save_to_df(self, fetcheddata) -> dict:
-        columns = ["symbol", "datetime", "open", "close", "high", "low", "open1", "close1", "high1", "low1"]
-        renamedColumns = {
-            "open1": "open",
-            "close1": "close",
-            "high1": "high",
-            "low1": "low",
-        }
-        all = pd.DataFrame(fetcheddata, columns=columns)
-        all.set_index(["symbol", "datetime"], inplace=True)
-        table1 = all[["open", "close", "high", "low"]]
-        table2 = all.drop(["open", "close", "high", "low"], axis=1)
-        table2.rename(columns=renamedColumns, inplace=True)
-
-        return {"table1": table1, "table2": table2}
     
     def rows_for_symbols(self, tables: list, from_date: str, to_date:str):
         connection = self.connect_to_db()
